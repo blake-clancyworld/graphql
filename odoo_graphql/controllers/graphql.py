@@ -2,21 +2,31 @@ from odoo import http
 from odoo.http import request, content_disposition
 import json
 from ..utils import handle_graphql
-
+from ..auth import authenticate_and_execute
 import logging
 
 _logger = logging.getLogger(__name__)
 
-
 class GraphQL(http.Controller):
     @http.route(
-        "/graphql", auth="public", type="http", website=True, sitemap=False, csrf=False
+        "/graphql", auth="public", type="json", website=True, sitemap=False, csrf=False, methods=["POST"]
     )
-    def graphql(self):
-        # https://spec.graphql.org/June2018/#sec-Response-Format
-        query = request.httprequest.data.decode()  # request.graphqlrequest
-        response = request.env["graphql.handler"].handle_query(query)
-        return json.dumps(response, default=str)
+    def graphql(self, **data):
+        query = data.get("query")
+        variables = data.get("variables") or {}
+        operation_name = data.get("operationName")
+        auth = data.get("auth") or {}
+        
+        def query_with_context(request, user):
+            response = request.env["graphql.handler"].handle_query(query)
+            return json.dumps(response, default=str)
+
+        if auth:
+            result = authenticate_and_execute(query_with_context, auth)
+        else:
+            result = query_with_context(request, request.env.user)
+
+        return result
 
     @http.route(
         "/graphql/schema",
