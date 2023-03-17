@@ -14,6 +14,7 @@ class GraphQLHandler(models.TransientModel):
     _name = "graphql.handler"
 
     def handle_query(self, query):
+        _logger.info(f"Parsed query: {query}")  # Add this line for debugging
         if isinstance(query, bytes):
             query = query.decode()
         variables = {}
