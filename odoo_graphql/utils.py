@@ -2,6 +2,7 @@
 
 # https://github.com/graphql-python/graphql-core
 from graphql import parse
+from odoo.http import request
 from odoo.exceptions import ValidationError
 from odoo.osv.expression import AND
 from graphql.language.ast import (
@@ -173,18 +174,20 @@ def relation_subgathers(records, relational_data, variables={}, company_id=None)
     return subgathers
 
 
-def make_domain(domain, ids, company_id=None):
+def make_domain(domain=None, ids=None, company_id=None):
     _logger.info(f"Making domain with domain {domain}, ids {ids}, and company_id {company_id}")
-    if ids:
-        if isinstance(ids, (list, tuple)):
-            domain += [("id", "in", ids)]
-        elif isinstance(ids, int):
-            domain += [("id", "=", ids)]
-        if company_id is not None:
-            domain += [("company_id", "=", company_id)]
-    domain = expression.normalize_domain(domain) if domain else []
+    if ids is not None:
+        domain = expression.AND([domain, [('id', 'in', ids)]])
+    
+    if company_id is not None:
+        domain = expression.AND([domain, [('company_id', '=', company_id)]])
+    else:
+        user_allowed_company_ids = request.env.user.company_ids.ids
+        domain = expression.AND([domain, [('company_id', 'in', user_allowed_company_ids + [False])]])
+    
     _logger.info(f"Final domain in make domain: {domain}")
     return domain
+
 
 
 
@@ -220,16 +223,18 @@ def retrieve_records(model, field, variables={}, ids=None, mutation=False, compa
     _logger.info(f"Retrieve Domain after make domain: {convert_array_to_tuple(domain)}")
     
     if company_id is not None:
-        domain = expression.AND([domain, [("company_id", "in", user_allowed_company_ids)]])
+        model = model.with_company(company_id)
     else:
-        domain = expression.AND([domain, [("company_id", "=", user.company_id.id)]])
+        model = model.with_company(user.company_id.id)
     
     records = model.search(domain, **kwargs)
     
     if mutation:  # Write   
         records.write(vals)
 
-    return records
+    return records      
+
+
 
 def convert_array_to_tuple(domain_array):
     tuple_array = []
