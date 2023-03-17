@@ -6,13 +6,17 @@ from ..auth import authenticate_and_execute
 import logging
 
 _logger = logging.getLogger(__name__)
+_logger.setLevel(logging.INFO)
 
 class GraphQL(http.Controller):
     @http.route(
-        "/graphql", auth="public", type="json", website=True, sitemap=False, csrf=False, methods=["POST"]
+        "/graphql", auth="public", type="http", website=True, sitemap=False, csrf=False, methods=["POST"]
     )
     def graphql(self, **data):
+        data = json.loads(request.httprequest.data.decode())  # Read request data as JSON
         query = data.get("query")
+        _logger.info(f"Received data: {data}")  # Add this line for debugging
+        _logger.info(f"Received query: {query}")  # Add this line for debuggin
         variables = data.get("variables") or {}
         operation_name = data.get("operationName")
         auth = data.get("auth") or {}
