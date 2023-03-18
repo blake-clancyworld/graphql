@@ -3,6 +3,7 @@ from odoo.http import request, content_disposition
 import json
 from ..utils import handle_graphql
 from ..auth import authenticate_and_execute
+from odoo.addons.base.models.res_company import res_company
 import logging
 
 _logger = logging.getLogger(__name__)
