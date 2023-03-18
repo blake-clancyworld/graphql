@@ -174,19 +174,19 @@ def relation_subgathers(records, relational_data, variables={}, company_id=None)
     return subgathers
 
 
-def make_domain(domain=None, ids=None, company_id=None):
-    _logger.info(f"Making domain with domain {domain}, ids {ids}, and company_id {company_id}")
+def make_domain(domain, ids=None, company_id=None):
     if ids is not None:
-        domain = expression.AND([domain, [('id', 'in', ids)]])
-    
+        domain = expression.AND([[("id", "in", ids)], domain])
+
     if company_id is not None:
-        domain = expression.AND([domain, [('company_id', '=', company_id)]])
-    else:
-        user_allowed_company_ids = request.env.user.company_ids.ids
-        domain = expression.AND([domain, [('company_id', 'in', user_allowed_company_ids + [False])]])
-    
-    _logger.info(f"Final domain in make domain: {domain}")
+        _logger.info(f"make_domain - company_id input: {company_id}")  # Added logging
+        company_domain = expression.OR([[("company_id", "in", company_id)], [("company_id", "=", False)]])
+        domain = expression.AND([company_domain, domain])
+
+    _logger.info(f"make_domain - output domain: {domain}")  # Added logging
     return domain
+
+
 
 
 
@@ -195,15 +195,16 @@ def make_domain(domain=None, ids=None, company_id=None):
 # TODO: make it possible to define custom create/write handlers per models
 def retrieve_records(model, field, variables={}, ids=None, mutation=False, company_id=None):
     _logger.info(f"Retrieving records for model {model}, field {field}, ids {ids}, mutation {mutation}")
-    
+
     user = model.env.user
     user_allowed_company_ids = user.company_ids.ids
     _logger.info(f"User's allowed company_ids: {user_allowed_company_ids}")
-    
-    _logger.info(company_id)
-    _logger.info(f"ids: {ids}")
+
+    # Add logging for the company_id value.
+    _logger.info(f"Provided company_id: {company_id}")
+
     domain, kwargs, vals = parse_arguments(field.arguments, variables)
-    
+
     if mutation and domain is None:  # Create
         try:
             records = model.create(vals)
@@ -213,26 +214,37 @@ def retrieve_records(model, field, variables={}, ids=None, mutation=False, compa
                 raise ValidationError(str(e).split("\n")[0])
             raise
         return records
-    
+
     _logger.info(f"Retrieve records Domain before converting to tuple: {domain}")
+
     domain = convert_array_to_tuple(domain or [])
     _logger.info(f"retrieve Domain after converting to tuple: {convert_array_to_tuple(domain)}")
-    
+
     # Retrieve records
-    domain = make_domain(domain, ids, company_id=company_id)
+    if company_id is not None:
+        if isinstance(company_id, int):
+            company_id = [company_id]
+            _logger.info(f"Converted company_id to list: {company_id}")  # Added logging
+        company_domain = expression.OR([[("company_id", "in", company_id)], [("company_id", "=", False)]])
+        domain = expression.AND([company_domain, domain])
+    else:
+        domain = make_domain(domain, ids)
+
     _logger.info(f"Retrieve Domain after make domain: {convert_array_to_tuple(domain)}")
-    
+
     if company_id is not None:
         model = model.with_company(company_id)
     else:
         model = model.with_company(user.company_id.id)
-    
+
     records = model.search(domain, **kwargs)
-    
-    if mutation:  # Write   
+
+    if mutation:  # Write
         records.write(vals)
 
-    return records      
+    return records
+
+
 
 
 
