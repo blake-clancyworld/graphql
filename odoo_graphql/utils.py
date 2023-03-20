@@ -204,9 +204,21 @@ def get_records(model, field, ids=None, company_id=None, mutation=False):
     return records
 
 
+def set_default_company(record, company_id):
+    """Set the default company ID for a record."""
+    if 'company_id' in record and company_id:
+        record['company_id'] = company_id.id
 
 
-
+def set_user_context(model, variables):
+    """
+    Set the context for the given model based on the variables provided.
+    """
+    context = {}
+    if "context" in variables and variables["context"]:
+        context = variables["context"]
+    model = model.with_context(context)
+    return model
 
 
 # TODO: make it possible to define custom create/write handlers per models
@@ -361,7 +373,7 @@ OPTIONS = [("offset", int), ("limit", int), ("order", str)]
 # TODO: Add a hook to filter vals?
 # https://stackoverflow.com/questions/45674423/how-to-filter-greater-than-in-graphql
 from graphql.language import ast
-from odoo.addons.odoo_graphql.utils import convert_argument, is_array, is_enum
+#from odoo.addons.odoo_graphql.utils import convert_argument, is_array, is_enum
 
 
 def parse_arguments(arguments, variables):
