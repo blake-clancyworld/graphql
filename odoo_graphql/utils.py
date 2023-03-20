@@ -185,8 +185,9 @@ def make_domain(model, field, ids=None, company_id=None, mutation=False):
     # Add the company filter if company ID is provided and user is not a superuser
     if company_id and not mutation and not request.env.user._is_superuser():
         allowed_companies = request.env.user.company_ids.ids
+        _logger.info(f" the full list of {allowed_companies}")
         if company_id in allowed_companies:
-            domain += [(field, '=', company_id)]
+            domain += [(field, '=', company_id)]    
     
     return domain
 
@@ -205,21 +206,23 @@ def get_records(model, field, ids=None, company_id=None, mutation=False):
 
 
 def set_default_company(record, company_id):
+
     """Set the default company ID for a record."""
     if 'company_id' in record and company_id:
         record['company_id'] = company_id.id
 
 
-def set_user_context(model, variables):
+def set_user_context(model, variables, context):
+    _logger.info(f"Setting context for model {model} with variables {variables}")
     """
-    Set the context for the given model based on the variables provided.
+    Set the context for the given model based on the variables and context provided.
     """
-    context = {}
     if "context" in variables and variables["context"]:
-        context = variables["context"]
+        context.update(variables["context"])
     model = model.with_context(context)
+    _logger.info(f"Context for model {model} after setting: {model.env.context}")
     return model
-
+  
 
 # TODO: make it possible to define custom create/write handlers per models
 
@@ -239,6 +242,8 @@ def retrieve_records(model, field, variables=None, ids=None, mutation=False, com
 
     domain, kwargs, vals = parse_arguments(field.arguments, variables)
 
+    _logger.info(f"Domain received from parse_arguments: {domain}")
+
     if mutation and domain is None:  # Create
         try:
             records = model.create(vals)
@@ -249,22 +254,20 @@ def retrieve_records(model, field, variables=None, ids=None, mutation=False, com
             raise
         return records
 
-    _logger.info(f"Retrieve records Domain before converting to tuple: {domain}")
-
     domain = convert_array_to_tuple(domain or [])
-    _logger.info(f"Retrieve Domain after converting to tuple: {domain}")
 
-    # Retrieve records
+    _logger.info(f"Domain after converting to tuple: {domain}")
+
     if company_id is not None:
         if isinstance(company_id, int):
             company_id = [company_id]
-            _logger.info(f"Converted company_id to list: {company_id}")  # Added logging
+            _logger.info(f"Converted company_id to list: {company_id}")
         company_domain = expression.OR([[("company_id", "in", company_id)], [("company_id", "=", False)]])
         domain = expression.AND([company_domain, domain])
     else:
         domain = make_domain(domain, ids)
 
-    _logger.info(f"Retrieve Domain after make domain: {domain}")
+    _logger.info(f"Domain after applying company_id filter: {domain}")
 
     if company_id is not None:
         model = model.with_company(company_id)
@@ -275,6 +278,8 @@ def retrieve_records(model, field, variables=None, ids=None, mutation=False, com
 
     if mutation:  # Write
         records.write(vals)
+
+    _logger.info(f"Retrieved {len(records)} records for model {model}, field {field}, ids {ids}, mutation {mutation}")
 
     return records
 
