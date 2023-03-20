@@ -174,17 +174,34 @@ def relation_subgathers(records, relational_data, variables={}, company_id=None)
     return subgathers
 
 
-def make_domain(domain, ids=None, company_id=None):
-    if ids is not None:
-        domain = expression.AND([[("id", "in", ids)], domain])
-
-    if company_id is not None:
-        _logger.info(f"make_domain - company_id input: {company_id}")  # Added logging
-        company_domain = expression.OR([[("company_id", "in", company_id)], [("company_id", "=", False)]])
-        domain = expression.AND([company_domain, domain])
-
-    _logger.info(f"make_domain - output domain: {domain}")  # Added logging
+def make_domain(model, field, ids=None, company_id=None, mutation=False):
+    # Create an empty domain list
+    domain = []
+    
+    # Add the ID filter if IDs are provided
+    if ids:
+        domain += [('id', 'in', ids)]
+    
+    # Add the company filter if company ID is provided and user is not a superuser
+    if company_id and not mutation and not request.env.user._is_superuser():
+        allowed_companies = request.env.user.company_ids.ids
+        if company_id in allowed_companies:
+            domain += [(field, '=', company_id)]
+    
     return domain
+
+def get_records(model, field, ids=None, company_id=None, mutation=False):
+    # Retrieve the domain
+    domain = make_domain(model, field, ids, company_id, mutation)
+    
+    # Search for the records
+    records = request.env[model].sudo().search(domain)
+    
+    # Check if the user has access to the records
+    request.env[model].check_access_rights('read')
+    request.env[model].check_access_rule(records)
+    
+    return records
 
 
 
@@ -237,13 +254,34 @@ def retrieve_records(model, field, variables={}, ids=None, mutation=False, compa
     else:
         model = model.with_company(user.company_id.id)
 
+    # New: allow fetching of all fields if none is specified in the graphql query
+    if not field.selection_set.selections:
+        fields = model._fields
+        record_fields = [field for field in fields.values() if not field.related and not field.store and not field.compute]
+        selection_set = [f.name for f in record_fields]
+        field.selection_set = selection_set
+
+    # Get resolver for each field
+    resolvers = {}
+    for field_name in field.selection_set.selections:
+        resolver = get_field_resolver(model, field_name.name.value)
+        resolvers[field_name.name.value] = resolver
+
+    # Retrieve records
     records = model.search(domain, **kwargs)
+    _logger.info(f"Records found: {len(records)}")
+    if len(records) > 0:
+        _logger.info(f"Records: {records.ids}")
+
+    # Apply resolvers to fields
+    for record in records:
+        for field_name, resolver in resolvers.items():
+            setattr(record, field_name, resolver(record))
 
     if mutation:  # Write
         records.write(vals)
 
     return records
-
 
 
 
