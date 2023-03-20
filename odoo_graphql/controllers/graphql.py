@@ -1,54 +1,64 @@
-from odoo import http
-from odoo.http import request, content_disposition
 import json
-from ..utils import handle_graphql
-from ..auth import authenticate_and_execute
-from odoo.addons.base.models.res_company import res_company
-import logging
+from odoo import http
+from graphql import GraphQLError, GraphQLSchema, execute, parse
 
-_logger = logging.getLogger(__name__)
-_logger.setLevel(logging.INFO)
+from .utils import (
+    convert_odoo_type_to_graphql,
+    retrieve_records,
+    set_default_company_id,
+    set_user_context,
+)
 
-class GraphQL(http.Controller):
-    @http.route(
-        "/graphql", auth="public", type="http", website=True, sitemap=False, csrf=False, methods=["POST"]
-    )
-    def graphql(self, **data):
-        data = json.loads(request.httprequest.data.decode())  # Read request data as JSON
-        query = data.get("query")
-        _logger.info(f"Received data: {data}")  # Add this line for debugging
-        _logger.info(f"Received query: {query}")  # Add this line for debuggin
-        variables = data.get("variables") or {}
-        operation_name = data.get("operationName")
-        auth = data.get("auth") or {}
-        
-        def query_with_context(request, user):
-            response = request.env["graphql.handler"].handle_query(query)
-            return json.dumps(response, default=str)
 
-        if auth:
-            result = authenticate_and_execute(query_with_context, auth)
-        else:
-            result = query_with_context(request, request.env.user)
+class GraphQLController(http.Controller):
+    @http.route("/graphql", type="http", auth="user", website=True)
+    def graphql(self, **kwargs):
+        try:
+            request_data = json.loads(http.request.httprequest.data.decode("utf-8"))
+            query = request_data.get("query")
+            variables = request_data.get("variables", {})
+            operation_name = request_data.get("operationName")
+            context = http.request.env.context.copy()
+            set_user_context(context)
+            set_default_company_id(context)
+            schema = GraphQLSchema(query=self.get_query())
+            result = execute(
+                schema=schema,
+                context_value=context,
+                document_ast=parse(query),
+                operation_name=operation_name,
+                variable_values=variables,
+                field_resolver=self.get_field_resolver(),
+                # added parameter to get resolver function
+            )
+            return json.dumps({"data": result.data, "errors": [e.message for e in result.errors]})
+        except Exception as e:
+            return json.dumps({"data": None, "errors": [str(e)]})
 
-        return result
+    def get_query(self):
+        queries = []
+        for model_name in http.request.env:
+            model = http.request.env[model_name]
+            if not model._abstract and hasattr(model, "_graphql"):
+                queries.append(model._graphql)
+        return parse("\n".join(queries))
 
-    @http.route(
-        "/graphql/schema",
-        auth="public",
-        type="http",
-        website=True,
-        sitemap=False,
-        csrf=False,
-    )
-    def graphql_schema(self):
-        # Nb: Not meant to be displayed
-        content = request.env["graphql.handler"].schema()
-        response = request.make_response(
-            content,
-            headers=[
-                ("Content-Type", "application/graphql"),
-                ("Content-Disposition", content_disposition("schema.graphql")),
-            ],
-        )
-        return response
+    def get_field_resolver(self):
+        def resolve(model_name, info, **kwargs):
+            try:
+                model = http.request.env[model_name]
+            except Exception:
+                raise GraphQLError(f"Model {model_name} not found")
+            field = info.field_name
+            variables = info.variable_values
+            ids = kwargs.get("ids")
+            mutation = kwargs.get("mutation", False)
+            company_id = kwargs.get("company_id")  # added parameter to get company_id
+            records = retrieve_records(model, field, variables, ids, mutation, company_id)
+            if not records:
+                raise GraphQLError(f"No {model_name} record found with id(s) {ids}")
+            if isinstance(records, list):
+                return [dict(r.read([field])) for r in records]
+            return dict(records.read([field]))
+
+        return resolve
