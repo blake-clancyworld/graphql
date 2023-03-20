@@ -1,17 +1,27 @@
+from odoo import http
+from odoo.http import request, content_disposition
+import json
+from ..utils import handle_graphql
+from ..auth import authenticate_and_execute
+import logging
+
+_logger = logging.getLogger(__name__)
+_logger.setLevel(logging.INFO)
+
 import json
 from odoo import http
 from graphql import GraphQLError, GraphQLSchema, execute, parse
 
-from .utils import (
-    convert_odoo_type_to_graphql,
+from ..utils import (
+    #convert_odoo_type_to_graphql,
     retrieve_records,
-    set_default_company_id,
+    set_default_company,
     set_user_context,
 )
 
 
 class GraphQLController(http.Controller):
-    @http.route("/graphql", type="http", auth="user", website=True)
+    @http.route("/graphql", type="http", auth="user", website=True, csrf=False  )
     def graphql(self, **kwargs):
         try:
             request_data = json.loads(http.request.httprequest.data.decode("utf-8"))
@@ -20,7 +30,7 @@ class GraphQLController(http.Controller):
             operation_name = request_data.get("operationName")
             context = http.request.env.context.copy()
             set_user_context(context)
-            set_default_company_id(context)
+            set_default_company(context)
             schema = GraphQLSchema(query=self.get_query())
             result = execute(
                 schema=schema,
