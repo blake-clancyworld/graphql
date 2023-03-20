@@ -3,7 +3,7 @@
 from odoo import models, tools
 from ..utils import handle_graphql, model2name
 import json
-from odoo.addons.base.models.res_company import res_company
+#from odoo.addons.base.models.res_partner import res_partner
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -235,5 +235,3 @@ class GraphQLHandler(models.TransientModel):
             return [getattr(record, field) for record in records]
     
         return resolve_field
-    
-    
