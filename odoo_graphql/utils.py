@@ -210,7 +210,12 @@ def get_records(model, field, ids=None, company_id=None, mutation=False):
 
 
 # TODO: make it possible to define custom create/write handlers per models
-def retrieve_records(model, field, variables={}, ids=None, mutation=False, company_id=None):
+
+
+def retrieve_records(model, field, variables=None, ids=None, mutation=False, company_id=None):
+    """
+    Retrieve records from a model based on a GraphQL field.
+    """
     _logger.info(f"Retrieving records for model {model}, field {field}, ids {ids}, mutation {mutation}")
 
     user = model.env.user
@@ -235,7 +240,7 @@ def retrieve_records(model, field, variables={}, ids=None, mutation=False, compa
     _logger.info(f"Retrieve records Domain before converting to tuple: {domain}")
 
     domain = convert_array_to_tuple(domain or [])
-    _logger.info(f"retrieve Domain after converting to tuple: {convert_array_to_tuple(domain)}")
+    _logger.info(f"Retrieve Domain after converting to tuple: {domain}")
 
     # Retrieve records
     if company_id is not None:
@@ -247,41 +252,20 @@ def retrieve_records(model, field, variables={}, ids=None, mutation=False, compa
     else:
         domain = make_domain(domain, ids)
 
-    _logger.info(f"Retrieve Domain after make domain: {convert_array_to_tuple(domain)}")
+    _logger.info(f"Retrieve Domain after make domain: {domain}")
 
     if company_id is not None:
         model = model.with_company(company_id)
     else:
         model = model.with_company(user.company_id.id)
 
-    # New: allow fetching of all fields if none is specified in the graphql query
-    if not field.selection_set.selections:
-        fields = model._fields
-        record_fields = [field for field in fields.values() if not field.related and not field.store and not field.compute]
-        selection_set = [f.name for f in record_fields]
-        field.selection_set = selection_set
-
-    # Get resolver for each field
-    resolvers = {}
-    for field_name in field.selection_set.selections:
-        resolver = get_field_resolver(model, field_name.name.value)
-        resolvers[field_name.name.value] = resolver
-
-    # Retrieve records
     records = model.search(domain, **kwargs)
-    _logger.info(f"Records found: {len(records)}")
-    if len(records) > 0:
-        _logger.info(f"Records: {records.ids}")
-
-    # Apply resolvers to fields
-    for record in records:
-        for field_name, resolver in resolvers.items():
-            setattr(record, field_name, resolver(record))
 
     if mutation:  # Write
         records.write(vals)
 
     return records
+
 
 
 
@@ -376,16 +360,31 @@ OPTIONS = [("offset", int), ("limit", int), ("order", str)]
 
 # TODO: Add a hook to filter vals?
 # https://stackoverflow.com/questions/45674423/how-to-filter-greater-than-in-graphql
-def parse_arguments(args, variables={}):  # return a domain and kwargs
-    args = {a.name.value: value2py(a.value, variables) for a in args}
-    domain = args.pop("domain", None)
+from graphql.language import ast
+from odoo.addons.odoo_graphql.utils import convert_argument, is_array, is_enum
+
+
+def parse_arguments(arguments, variables):
+    """
+    Parse arguments in the GraphQL request to Odoo domain and kwargs.
+    """
+    domain = []
     kwargs = {}
-    for opt, cast in OPTIONS:
-        value = args.pop(opt, None)
-        if value:
-            kwargs[opt] = cast(value)
-    vals = args.pop("vals", {})
+    vals = {}
+    for arg_name, arg_node in arguments.items():
+        arg_value = convert_argument(arg_node.value, variables)
+
+        if is_array(arg_value):
+            arg_value = [convert_argument(value, variables) for value in arg_value]
+            domain.append((arg_name, "in", arg_value))
+        elif is_enum(arg_node):
+            domain.append((arg_name, "=", arg_value))
+        else:
+            kwargs[arg_name] = arg_value
+            vals[arg_name] = arg_value
+
     return domain, kwargs, vals
+
 
 
 def value2py(value, variables={}):
