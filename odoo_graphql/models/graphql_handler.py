@@ -3,14 +3,14 @@
 from odoo import models, tools
 from ..utils import handle_graphql, model2name
 import json
-
+from odoo.addons.base.models.res_company import res_company
 import logging
 
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.INFO)
 
 
-class GraphQLHandler(models.TransientModel):
+class GraphQLHandler(models.TransientModel):    
     _name = "graphql.handler"
 
     def handle_query(self, query):
@@ -218,3 +218,22 @@ class GraphQLHandler(models.TransientModel):
             self._schema(m, reverse_mapping, allowed_fields) for m in ir_model_ids
         )
         return res
+
+    def get_field_resolver(model, field):
+    # Define the field resolver function
+        def resolve_field(parent, info):
+            # Retrieve the IDs of the records to retrieve
+            ids = parent.ids if isinstance(parent, models.BaseModel) else [parent.id]
+        
+             # Retrieve the company ID if it exists
+            company_id = info.context.get('company_id')
+        
+            # Retrieve the records
+            records = get_records(model, field, ids, company_id)
+        
+        # Return the field value for each record
+            return [getattr(record, field) for record in records]
+    
+        return resolve_field
+    
+    
