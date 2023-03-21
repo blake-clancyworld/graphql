@@ -9,7 +9,6 @@ _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.INFO)
 
 import json
-from odoo import http
 from graphql import GraphQLError, GraphQLSchema, execute, parse
 
 from ..utils import (
@@ -47,6 +46,7 @@ class GraphQLController(http.Controller):
             set_default_company(context, kwargs.get('auth', {}).get('company_id'))
             _logger.info(f"Context after setting: {context}")
             schema = GraphQLSchema(query=self.get_query())
+            _logger.info(f"Schema: {schema}")
             result = execute(
                 schema=schema,
                 context_value=context,
